@@ -1,9 +1,24 @@
 
+# = HISTORY SECTION =====================================================================
+
+# ---------------------------------------------------------------------------------------
+# version | date   | author     | changes
+# ---------------------------------------------------------------------------------------
+# 2.03    |29.02.00| J. Stenzel | added perl version demand;
+# 2.02    |20.02.00| J. Stenzel | first version.
+# ---------------------------------------------------------------------------------------
+
+# = POD SECTION =========================================================================
+
 # Makefile.PL -- Makefile template for IPC::LDT
 #
 # This file is part of the "IPC::LDT" module package.
-# IPC::LDT is free software, you can redistribute it
-# and/or modify it under the same terms as Perl itself.
+# IPC::LDT is free software, see the module for license
+# details.
+
+
+# demand perl version
+require 5.00503;
 
 # load module
 use ExtUtils::MakeMaker;

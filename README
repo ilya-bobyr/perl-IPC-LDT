@@ -3,7 +3,7 @@
 Release
 =======
 
-IPC::LDT 2.02.
+IPC::LDT 2.03.
 
 
 Overview
@@ -23,7 +23,7 @@ An LDT message contains of two parts: a fix length prefix describing the
 length of the second part, and the kernel message (of the described length).
 
   Example: if the prefix length is 4, a message "msg"
-  would be transfered as "0003msg".
+           would be transfered as "0003msg".
 
 IPC::LDT provides a simple interface to use this protocol. A user sends and
 receives messages by simple method calls, while the LDT objects perform the
@@ -70,10 +70,16 @@ Installation
 
 This module can be installed as usual by
 
-        perl Makefile.PL
-	make
-	make test
-	make install
+  perl Makefile.PL
+  make
+  make test
+  make install
+
+
+What's new?
+===========
+
+2.03 enforces perl version 5.00503 (necessary to use the fields pragma).
 
 
 Problems?

@@ -2,38 +2,40 @@
 # = HISTORY SECTION =====================================================================
 
 # ---------------------------------------------------------------------------------------
-# version | date   | author | changes
+# version | date   | author   | changes
 # ---------------------------------------------------------------------------------------
-# 2.02    |06.01.00| ets    | started translation of POD;
-#         |        | ets    | replaced bug() by Carp::confess();
-#         |        | ets    | integrated inhouse modules and funtions (like filters);
-#         |15.01.00| ets    | improved source filters;
-# 2.01    |        | ets    | ;
-# 2.00    |25.10.99| ets    | added the delayed sending feature;
-#         |26.10.99| ets    | formatted POD to be better prepared for pod2text;
-#         |        | ets    | added traces;
+# 2.03    |29.02.00| JSTENZEL | corrected perl version demand;
+#         |        | JSTENZEL | slight POD and comment improvements;
+# 2.02    |06.01.00| JSTENZEL | started translation of POD;
+#         |        | JSTENZEL | replaced bug() by Carp::confess();
+#         |        | JSTENZEL | integrated inhouse modules and funtions (like filters);
+#         |15.01.00| JSTENZEL | improved source filters;
+# 2.01    |        | JSTENZEL | ;
+# 2.00    |25.10.99| JSTENZEL | added the delayed sending feature;
+#         |26.10.99| JSTENZEL | formatted POD to be better prepared for pod2text;
+#         |        | JSTENZEL | added traces;
 # ---------------------------------------------------------------------------------------
-# 1.05    |30.09.99| ets    | extended traces;
-# 1.04    |15.09.99| ets    | documented noAssert;
-# 1.03    |10.09.99| ets    | improvements to avoid warnings;
-#         |        | ets    | constructor now checks if the passed handle is open;
-#         |        | ets    | all methods now check if the the handle is still opened;
-#         |        | ets    | improved POD formatting;
-#         |        | ets    | message fix;
-# 1.02    |09.09.99| ets    | comment fixes;
-#         |        | ets    | better fcntl() calls (saving original flags really),
-#         |        |        | inspired by code pieces in "Advanced Perl Programming";
-#         |        | ets    | non blocking mode is now activated only during transfers;
-#         |        | ets    | modified some traces;
-# 1.01    |09.09.99| ets    | adding initial select() calls to avoid obstipation trouble;
-#         |        | ets    | using IO::Select now;
-#         |        | ets    | the waiting select() call to complete incomplete transfers
-#         |        |        | now waits SPECIFICALLY on the socket AND with timeout -
-#         |        |        | so if the socket is ready before the timeout period ends,
-#         |        |        | the process is accelerated now (select() returns earlier);
-#         |        | ets    | SIGPIPE is now temporarily disabled in send() and receive()
-#         |        |        | to avoid trouble with sockets closing during a transfer;
-# 1.00    |07.09.99| ets    | new, derived from Admin::IO::common;
+# 1.05    |30.09.99| JSTENZEL | extended traces;
+# 1.04    |15.09.99| JSTENZEL | documented noAssert;
+# 1.03    |10.09.99| JSTENZEL | improvements to avoid warnings;
+#         |        | JSTENZEL | constructor now checks if the passed handle is open;
+#         |        | JSTENZEL | all methods now check if the the handle is still opened;
+#         |        | JSTENZEL | improved POD formatting;
+#         |        | JSTENZEL | message fix;
+# 1.02    |09.09.99| JSTENZEL | comment fixes;
+#         |        | JSTENZEL | better fcntl() calls (saving original flags really),
+#         |        |          | inspired by code pieces in "Advanced Perl Programming";
+#         |        | JSTENZEL | non blocking mode is now activated only during transfers;
+#         |        | JSTENZEL | modified some traces;
+# 1.01    |09.09.99| JSTENZEL | adding initial select() calls to avoid obstipation trouble;
+#         |        | JSTENZEL | using IO::Select now;
+#         |        | JSTENZEL | the waiting select() call to complete incomplete transfers
+#         |        |          | now waits SPECIFICALLY on the socket AND with timeout -
+#         |        |          | so if the socket is ready before the timeout period ends,
+#         |        |          | the process is accelerated now (select() returns earlier);
+#         |        | JSTENZEL | SIGPIPE is now temporarily disabled in send() and receive()
+#         |        |          | to avoid trouble with sockets closing during a transfer;
+# 1.00    |07.09.99| JSTENZEL | new, derived from Admin::IO::common;
 # ---------------------------------------------------------------------------------------
 
 # = POD SECTION =========================================================================
@@ -44,7 +46,7 @@ B<IPC::LDT> - implements a length based IPC protocol
 
 =head1 SCRIPT DATA
 
-This manual describes version B<2.02>.
+This manual describes version B<2.03>.
 
 =head1 DESCRIPTION
 
@@ -108,15 +110,15 @@ B<>
 =cut
 
 # check perl version
-require 5.00303;
+require 5.00503;
 
 # = PACKAGE SECTION (internal helper packages) ==========================================
 
 # declare package
 package IPC::LDT::Filter::MeTrace;
 
-# declare package version (as a STRING!!)
-$VERSION=$VERSION="1.00";
+# declare package version
+$VERSION=$VERSION=1.00;
 
 # set pragmas
 use strict;
@@ -159,8 +161,8 @@ no strict;
 # declare package
 package IPC::LDT::Filter::Assert;
 
-# declare package version (as a STRING!!)
-$VERSION=$VERSION="1.00";
+# declare package version
+$VERSION=$VERSION=1.00;
 
 # set pragmas
 use strict;
@@ -230,7 +232,7 @@ use Exporter ();
 @ISA=qw(Exporter);
 
 # declare package version
-$VERSION=2.02;
+$VERSION=2.03;
 
 # declare fields
 use fields qw(
@@ -1334,5 +1336,15 @@ or receive them:
 =head1 AUTHOR
 
 Jochen Stenzel (perl@jochen-stenzel.de)
+
+=head1 COPYRIGHT
+
+Copyright (c) 1998-2000 Jochen Stenzel. All rights reserved.
+
+This program is free software, you can redistribute it and/or modify it
+under the terms of the Artistic License distributed with Perl version
+5.003 or (at your option) any later version. Please refer to the
+Artistic License that came with your Perl distribution for more
+details.
 
 =cut
