@@ -7,10 +7,7 @@
 # load modules
 use IPC::LDT;
 use FileHandle;
-use Data::Dumper;
-
-# display number of test
-print "1..4\n";
+use Test::More tests => 4;
 
 # build temporary filename
 my $file="/tmp/.$$.ipc.ldt.tmp";
@@ -49,10 +46,10 @@ my $ref=\$IPC::LDT::VERSION;
  my @data=$ldt->receive;
 
  # perform the checks
- print $data[0]==$scalar ? 'ok' : 'not ok', "\n";
- print Dumper(@{$data[1]}) eq Dumper(@array) ? 'ok' : 'not ok', "\n";
- print Dumper(%{$data[2]}) eq Dumper(%hash)  ? 'ok' : 'not ok', "\n";
- print ${$data[3]} eq $$ref ? 'ok' : 'not ok', "\n";
+ is($data[0], $scalar, "Scalar stored correctly");
+ is_deeply($data[1], \@array, "Array stored correctly");
+ is_deeply($data[2], \%hash, "Hash stored correctly");
+ is_deeply($data[3], $ref, "Reference stored correctly");
 
  # close the temporary file
  close(I);

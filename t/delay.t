@@ -7,9 +7,7 @@
 # load modules
 use IPC::LDT;
 use FileHandle;
-
-# display number of test
-print "1..1\n";
+use Test::More tests => 1;
 
 # build temporary filename
 my $file="/tmp/.$$.ipc.ldt.tmp";
@@ -49,7 +47,7 @@ my $file="/tmp/.$$.ipc.ldt.tmp";
  $read[$_-1]=$ldt->receive for 1..10;
 
  # perform the checks
- print join('-', @read) eq '2-4-6-8-10-1-3-5-7-9' ? 'ok' : 'not ok', "\n";
+ is(join('-', @read), '2-4-6-8-10-1-3-5-7-9', "Even messages delayed");
 
  # close the temporary file
  close(I);

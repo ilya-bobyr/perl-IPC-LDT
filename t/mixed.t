@@ -9,9 +9,7 @@
 use IPC::LDT;
 use FileHandle;
 use Data::Dumper;
-
-# display number of test
-print "1..12\n";
+use Test::More tests => 12;
 
 # build temporary filename
 my $file="/tmp/.$$.ipc.ldt.tmp";
@@ -92,22 +90,22 @@ my $ref=\$IPC::LDT::VERSION;
  my @data2=$ldt->receive;
 
  # perform the ASCII checks
- print $read1 eq $msg ? 'ok' : 'not ok', "\n";
- print $read2 eq join('', @msg) ? 'ok' : 'not ok', "\n";
+ is($read1, $msg, "One part multiline message.1");
+ is($read2, join('', @msg), "Multipart message.1");
 
- print $read3 eq $msg ? 'ok' : 'not ok', "\n";
- print $read4 eq join('', @msg) ? 'ok' : 'not ok', "\n";
+ is($read3, $msg, "One part multiline message.2");
+ is($read4, join('', @msg), "Multipart message.2");
 
  # perform the data checks
- print $data1[0]==$scalar ? 'ok' : 'not ok', "\n";
- print Dumper(@{$data1[1]}) eq Dumper(@array) ? 'ok' : 'not ok', "\n";
- print Dumper(%{$data1[2]}) eq Dumper(%hash)  ? 'ok' : 'not ok', "\n";
- print ${$data1[3]} eq $$ref ? 'ok' : 'not ok', "\n";
+ is($data1[0], $scalar, "Scalar stored correctly.1");
+ is_deeply($data1[1], \@array, "Array stored correctly.1");
+ is_deeply($data1[2], \%hash, "Hash stored correctly.1");
+ is_deeply($data1[3], $ref, "Reference stored correctly.1");
 
- print $data2[0]==$scalar ? 'ok' : 'not ok', "\n";
- print Dumper(@{$data2[1]}) eq Dumper(@array) ? 'ok' : 'not ok', "\n";
- print Dumper(%{$data2[2]}) eq Dumper(%hash)  ? 'ok' : 'not ok', "\n";
- print ${$data2[3]} eq $$ref ? 'ok' : 'not ok', "\n";
+ is($data2[0], $scalar, "Scalar stored correctly.2");
+ is_deeply($data2[1], \@array, "Array stored correctly.2");
+ is_deeply($data2[2], \%hash, "Hash stored correctly.2");
+ is_deeply($data2[3], $ref, "Reference stored correctly.2");
 
  # close the temporary file
  close(I);

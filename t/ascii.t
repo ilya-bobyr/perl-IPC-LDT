@@ -7,9 +7,7 @@
 # load modules
 use IPC::LDT;
 use FileHandle;
-
-# display number of test
-print "1..2\n";
+use Test::More tests => 2;
 
 # build temporary filename
 my $file="/tmp/.$$.ipc.ldt.tmp";
@@ -49,8 +47,8 @@ my @msg=('This message', "contains\nof", 'several parts.');
  my $read2=$ldt->receive;
 
  # perform the checks
- print $read1 eq $msg ? 'ok' : 'not ok', "\n";
- print $read2 eq join('', @msg) ? 'ok' : 'not ok', "\n";
+ is($read1, $msg, "One part multiline message");
+ is($read2, join('', @msg), "Multipart message");
 
  # close the temporary file
  close(I);
