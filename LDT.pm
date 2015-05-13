@@ -482,14 +482,7 @@ sub new
   bug("Constructor called as method, use copy() method instead") if ref($class);
   bug("Missing handle parameter") unless exists $switches{'handle'} and $switches{'handle'};
 
-  # declare function variables
-  my ($me);
-
-  # make new object
-  {
-   no strict 'refs';
-   $me=bless([\%{"$class\::FIELDS"}], $class);
-  }
+  my $me = fields::new($class);
 
   # check the handle for being valid and open
   if (defined $switches{'handle'}->fileno)
