@@ -3,57 +3,39 @@
 # using file handles to check the
 # transfer of Perl data.
 
-
-# load modules
-use IPC::LDT;
-use FileHandle;
 use Test::More tests => 4;
 
-# build temporary filename
-my $file="/tmp/.$$.ipc.ldt.tmp";
+use IPC::LDT;
 
-# init the data to transfer
-my $scalar=50;
-my @array=(3, 7, 15);
-my %hash=(a=>'A', z=>'Z');
-my $ref=\$IPC::LDT::VERSION;
+use IO::File;
+use Fcntl 'SEEK_SET';
+
+my $file = IO::File->new_tmpfile;
+
+my $scalar = 50;
+my @array = (3, 7, 15);
+my %hash = (a => 'A', z => 'Z');
+my $ref = \$IPC::LDT::VERSION;
 
 # write message
 {
- # open file
- open(O, ">$file") or die "[Fatal] Could not open $file for writing.\n";
+    my $ldt = new IPC::LDT(handle => $file, objectMode => 1)
+        or die "[Fatal] Could not build LDT object.\n";
 
- # build LDT object
- my $ldt=new IPC::LDT(handle=>*O, objectMode=>1) or die "[Fatal] Could not build LDT object.\n";
-
- # send data
- $ldt->send($scalar, \@array, \%hash, $ref);
-
- # close the temporary file
- close(O);
+    $ldt->send($scalar, \@array, \%hash, $ref);
 }
 
+$file->seek(0, SEEK_SET);
 
 # read message
 {
- # open file
- open(I, $file) or die "[Fatal] Could not open $file for reading.\n";
+    my $ldt = new IPC::LDT(handle => $file, objectMode => 1)
+        or die "[Fatal] Could not build LDT object.\n";
 
- # build LDT object
- my $ldt=new IPC::LDT(handle=>*I, objectMode=>1) or die "[Fatal] Could not build LDT object.\n";
+    my @data = $ldt->receive;
 
- # read data
- my @data=$ldt->receive;
-
- # perform the checks
- is($data[0], $scalar, "Scalar stored correctly");
- is_deeply($data[1], \@array, "Array stored correctly");
- is_deeply($data[2], \%hash, "Hash stored correctly");
- is_deeply($data[3], $ref, "Reference stored correctly");
-
- # close the temporary file
- close(I);
+    is($data[0], $scalar, "Scalar stored correctly");
+    is_deeply($data[1], \@array, "Array stored correctly");
+    is_deeply($data[2], \%hash, "Hash stored correctly");
+    is_deeply($data[3], $ref, "Reference stored correctly");
 }
-
-# clean up
-unlink $file;

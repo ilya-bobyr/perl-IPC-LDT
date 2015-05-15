@@ -57,7 +57,7 @@ sub child {
    my ($in, $out) = @_;
 
    my @data;
-  
+
    $in->setAsciiMode;
    $out->setAsciiMode;
 

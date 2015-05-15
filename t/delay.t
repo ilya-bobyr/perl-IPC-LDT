@@ -3,55 +3,36 @@
 # using file handles to check the
 # delay feature.
 
-
-# load modules
-use IPC::LDT;
-use FileHandle;
 use Test::More tests => 1;
 
-# build temporary filename
-my $file="/tmp/.$$.ipc.ldt.tmp";
+use IPC::LDT;
+
+use IO::File;
+use Fcntl 'SEEK_SET';
+
+my $file = IO::File->new_tmpfile;
 
 # write messages
 {
- # open file
- open(O, ">$file") or die "[Fatal] Could not open $file for writing.\n";
+    my $ldt = new IPC::LDT(handle => $file)
+        or die "[Fatal] Could not build LDT object.\n";
 
- # build LDT object
- my $ldt=new IPC::LDT(handle=>*O) or die "[Fatal] Could not build LDT object.\n";
+    $ldt->delay(sub { $_[0]->[0] % 2 });
 
- # install delay filter
- $ldt->delay(sub {$_[0]->[0]%2});
+    $ldt->send($_) for 1..10;
 
- # send the messages
- $ldt->send($_) for 1..10;
-
- # stop delay and send delayed messages
- $ldt->undelay;
-
- # close the temporary file
- close(O);
+    $ldt->undelay;
 }
 
+$file->seek(0, SEEK_SET);
 
 # read messages
 {
- # open file
- open(I, $file) or die "[Fatal] Could not open $file for reading.\n";
+    my $ldt = new IPC::LDT(handle => $file)
+        or die "[Fatal] Could not build LDT object.\n";
 
- # build LDT object
- my $ldt=new IPC::LDT(handle=>*I) or die "[Fatal] Could not build LDT object.\n";
+    my @read;
+    $read[$_ - 1] = $ldt->receive for 1..10;
 
- # read the messages
- my @read;
- $read[$_-1]=$ldt->receive for 1..10;
-
- # perform the checks
- is(join('-', @read), '2-4-6-8-10-1-3-5-7-9', "Even messages delayed");
-
- # close the temporary file
- close(I);
+    is(join('-', @read), '2-4-6-8-10-1-3-5-7-9', "Even messages delayed");
 }
-
-# clean up
-unlink $file;
