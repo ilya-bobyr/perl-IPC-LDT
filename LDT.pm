@@ -117,10 +117,8 @@ require 5.00503;
 # declare package
 package IPC::LDT::Filter::MeTrace;
 
-# declare package version
-$VERSION=$VERSION=1.00;
-
 # set pragmas
+use warnings;
 use strict;
 
 # load CPAN modules
@@ -152,19 +150,11 @@ sub import
 	    );
  }
 
-# reply a true value to flag successfull init
-1;
-
-# reset pragmas;
-no strict;
-
 # declare package
 package IPC::LDT::Filter::Assert;
 
-# declare package version
-$VERSION=$VERSION=1.00;
-
 # set pragmas
+use warnings;
 use strict;
 
 # load CPAN modules
@@ -202,39 +192,28 @@ sub import
 	    );
  }
 
-# reply a true value to flag successfull init
-1;
-
-# reset pragmas
-no strict;
-
 # = PACKAGE SECTION ======================================================================
 
 # declare package
 package IPC::LDT;
 
-# filters
-BEGIN
- {
-  # deactivate compiler checks
-  no strict 'refs';
+use warnings;
+use strict;
 
-  # trace filter (first line to avoid useless warnings)
-  defined ${join('::', __PACKAGE__, 'Trace')} ? 1 : 1;
-  IPC::LDT::Filter::MeTrace::import() unless ${join('::', __PACKAGE__, 'Trace')};
+use vars qw(@ISA $VERSION @EXPORT @EXPORT_OK $Trace $noAssert);
 
-  # assertion filter (first line to avoid useless warnings)
-  defined ${join('::', __PACKAGE__, 'noAssert')} ? 1 : 1;
-  IPC::LDT::Filter::Assert::import(${join('::', __PACKAGE__, 'noAssert')});
- }
+BEGIN {
+   no strict 'refs';
+
+   IPC::LDT::Filter::MeTrace::import() unless ${join('::', __PACKAGE__, 'Trace')};
+   IPC::LDT::Filter::Assert::import(${join('::', __PACKAGE__, 'noAssert')});
+}
 
 use Exporter ();
 @ISA=qw(Exporter);
 
-# declare package version
-$VERSION=2.03;
+$VERSION = 2.03;
 
-# declare fields
 use fields qw(
               delayFilter
               delayQueue
@@ -274,6 +253,7 @@ LDT_OK and LDT_INFO_LENGTH which are described in section I<CONSTANTS>.
 # = PRAGMA SECTION =======================================================================
 
 # set pragmas
+use warnings;
 use strict;
 
 # = LIBRARY SECTION ======================================================================
@@ -284,6 +264,7 @@ use POSIX;
 use Storable;		      	        # data serialization;
 use IO::Select;                         # a select() wrapper;
 use Time::HiRes qw(gettimeofday tv_interval);
+use Scalar::Util qw(openhandle);
 
 # = CODE SECTION =========================================================================
 
@@ -424,9 +405,7 @@ A closed handle is I<not> accepted.
 
 You can use whatever type of handle meets your needs. Usually it is a socket
 or anything derived from a socket. For example, if you want to perform secure
-IPC, the handle could be made by Net::SSL. There is only one precondition:
-the handle has to provide a B<fileno()> method. (You can enorce this even for
-Perls default handles by simply using B<FileHandle>.)
+IPC, the handle could be made by Net::SSL.
 
 =item timeout
 
@@ -499,64 +478,50 @@ B<Examples:>
 
 =cut
 # -------------------------------------------------------------------
-sub new
- {
-  # get parameters
-  bug("Number of parameters should be even") unless @_ % 2;
-  my ($class, %switches)=@_;
+sub new {
+   bug("Number of parameters should be even") unless @_ % 2;
+   my ($class, %switches) = @_;
 
-  # and check them
-  bug("Missing class name parameter") unless $class;
-  bug("Constructor called as method, use copy() method instead") if ref($class);
-  bug("Missing handle parameter") unless exists $switches{'handle'} and $switches{'handle'};
-  bug("The only supported negative timeout value is -1") if defined $switches{timeout} && $switches{timeout} < 0 && $switches{timeout} != -1;
+   bug("Missing class name parameter") unless $class;
+   bug("Constructor called as method, use copy() method instead") if ref($class);
+   bug("Missing handle parameter") unless exists $switches{handle} and $switches{handle};
+   bug("The only supported negative timeout value is -1") if defined $switches{timeout} && $switches{timeout} < 0 && $switches{timeout} != -1;
 
-  my $me = fields::new($class);
+   my $me = fields::new($class);
 
-  # check the handle for being valid and open
-  if (defined $switches{'handle'}->fileno)
-    {
-     # build and init the object
-     $me->{'handle'}=$switches{'handle'};
-     $me->{timeout} =
-        defined $switches{timeout} ? $switches{timeout} : $Timeout;
-     $me->{'fileno'}=$me->{'handle'}->fileno;
-     $me->{'msg'} = '';
-     $me->{rc} = LDT_OK;
-     $me->{readBuf} = '';
-     $me->{writeBuf} = '';
-     $me->{'objectMode'}=(exists $switches{'objectMode'} and $switches{'objectMode'}) ? 1 : 0;
-     $me->{'startblockLength'}=(exists $switches{'startblockLength'} and $switches{'startblockLength'}>0) ? $switches{'startblockLength'} : LDT_INFO_LENGTH;
-     $me->{'traceMode'}=(exists $switches{'trace'} and $switches{'trace'}) ? 1: 0;
-     $me->{'select'}=new IO::Select($me->{'handle'});
+   $me->{handle} = $switches{handle};
+   $me->{timeout} =
+      defined $switches{timeout} ? $switches{timeout} : $Timeout;
+   $me->{fileno} =
+      # Not all handles have files attached to them.  We use this for
+      # debugging anyways.
+      $me->{handle}->can('fileno') && defined $me->{handle}->fileno
+         ? "FH " . $me->{handle}->fileno : "$me->{handle}";
+   $me->{msg} = '';
+   $me->{rc} = LDT_OK;
+   $me->{readBuf} = '';
+   $me->{writeBuf} = '';
+   $me->{objectMode} = $switches{objectMode} ? 1 : 0;
+   $me->{startblockLength} =
+      exists $switches{startblockLength} && $switches{startblockLength} > 0
+         ? $switches{startblockLength} : LDT_INFO_LENGTH;
+   $me->{traceMode} = $switches{trace} ? 1 : 0;
+   $me->{select} = new IO::Select($me->{handle});
+   $me->{delayQueue} = [];
 
-     # trace, if necessary
-     $me->trace("LDT $me->{'fileno'}: object is made.");
+   $me->trace("LDT $me->{fileno}: object is made.");
 
-     # reply the new object
-     return $me;
-    }
-  else
-    {
-     # invalid or closed handle passed
-     return undef;
-    }
- }
+   return $me;
+}
 
 
 # internal method
-sub DESTROY
- {
-  # get and check parameters
-  my ($me)=@_;
-  bug("Missed object parameter") unless $me;
-  bug("Object parameter is no ${\(__PACKAGE__)} object") unless ref($me) eq __PACKAGE__;
+sub DESTROY {
+   my ($me) = @_;
+   bug("Missed object parameter") unless $me;
+   bug("Object parameter is no ${\(__PACKAGE__)} object") unless ref($me) eq __PACKAGE__;
 
-  # get fileno (and handle status this way)
-  my $fileno=$me->{'handle'}->fileno;
-
-  # trace, if necessary
-  $me->trace("LDT ${\($fileno?$fileno:qq(with closed handle, was $me->{'fileno'}))}: object dies. Queue is", (defined $me->{'delayQueue'} and @{$me->{'delayQueue'}}) ? 'filled.' : 'empty.');
+   $me->trace("LDT $me->{fileno}: object destroyed. Queue is ", @{ $me->{delayQueue} } ? 'not empty.' : 'empty.');
  }
 
 
@@ -803,7 +768,7 @@ sub undelay
      $me->send(@$_) foreach @{$me->{'delayQueue'}};
 
      # empty queue
-     $me->{'delayQueue'}=undef;
+     $me->{'delayQueue'}=[];
     }
   else
     {
@@ -923,15 +888,6 @@ sub send {
       && $me->{rc} != LDT_WRITE_INCOMPLETE)
    {
       $me->trace("LDT $me->{fileno}: message unsent: object is in $me->{rc}.");
-      return $me->{rc};
-   }
-
-   if (not defined $me->{handle}->fileno)
-   {
-      $me->trace("LDT $me->{fileno}: message unsent: related handle was closed.");
-
-      $me->{rc} = LDT_CLOSED;
-      $me->{msg} = 'Related handle was closed.';
       return $me->{rc};
    }
 
@@ -1094,15 +1050,6 @@ sub receive {
       && $me->{rc} != LDT_READ_INCOMPLETE)
    {
       $me->trace("LDT $me->{fileno}: stopped receiving: object is in $me->{rc}.");
-      return ();
-   }
-
-   if (not defined $me->{handle}->fileno) {
-      $me->trace("LDT $me->{fileno}: stopped receiving: object is in $me->{rc}.");
-
-      $me->{rc} = LDT_CLOSED;
-      $me->{msg} = 'Related handle was closed.';
-
       return ();
    }
 
