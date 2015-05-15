@@ -240,8 +240,11 @@ use fields qw(
               delayQueue
               fileno
               handle
+              timeout
               msg
               objectMode
+              readBuf
+              writeBuf
               rc
               select
               startblockLength
@@ -267,6 +270,7 @@ LDT_OK and LDT_INFO_LENGTH which are described in section I<CONSTANTS>.
               LDT_OK
               LDT_READ_INCOMPLETE
               LDT_WRITE_INCOMPLETE
+              LDT_ERROR
              );
 
 # = PRAGMA SECTION =======================================================================
@@ -281,15 +285,15 @@ use Carp;                               # message handling;
 use POSIX;                      
 use Storable;		      	        # data serialization;
 use IO::Select;                         # a select() wrapper;
+use Time::HiRes qw(gettimeofday tv_interval);
 
 # = CODE SECTION =========================================================================
 
 # exportable constants
 use constant LDT_INFO_LENGTH=>8;        # length of a handle message length string;
 
-# internal constants
-use constant HANDLE_RETRY_COUNT=>100;	# number of trials to complete a message from a handle;
-use constant HANDLE_RETRY_DELAY=>0.2;	# number of seconds until a new attempt to complete a reading;
+# Default timeouts.
+our $Timeout = 10;
 
 =pod
 
@@ -333,6 +337,22 @@ they reach the compiler.
 Setting or unsetting this variable after the module was loaded takes
 I<no effect>.
 
+=item Timeouts
+
+send() and receive() operations may not complete immeditely.  They may take
+some time and in case of a deadlock may block infinetely.  You may control
+how long should they wait.  B<$IPC::LDT::Timeout> specifies the default
+maximum number of seconds send() or receive() may take.  Zero makes send()
+and receive() return immeditely.  Value of -1 means wait is not time
+restricted.
+
+You may change that value via I<timeout> parameter to B<new> or via
+timeout() method.
+
+Defaults to 10.
+
+Floating point values are supported via IO::Select::{can_read,can_write}.
+
 =back
 
 =head1 CONSTANTS
@@ -356,6 +376,11 @@ trials;
 a message could not be (completely) written within the set number of
 trials;
 
+=item LDT_ERROR
+
+a message could not be read or written because of an error on the
+underlying handle.
+
 =back
 
 =cut
@@ -363,8 +388,9 @@ trials;
 # error constants - these are made public (but not exported by default)
 use constant LDT_OK              =>100;	# all right;
 use constant LDT_CLOSED          =>-1;	# the handle was closed while it should be read;
-use constant LDT_READ_INCOMPLETE =>-2;	# a handle message could not be read completely;
-use constant LDT_WRITE_INCOMPLETE=>-3;	# a handle message could not be read completely;
+use constant LDT_ERROR           =>-2;
+use constant LDT_READ_INCOMPLETE =>-3;	# a handle message could not be read completely;
+use constant LDT_WRITE_INCOMPLETE=>-4;	# a handle message could not be written completely;
 
 =pod
 
@@ -408,6 +434,15 @@ or anything derived from a socket. For example, if you want to perform secure
 IPC, the handle could be made by Net::SSL. There is only one precondition:
 the handle has to provide a B<fileno()> method. (You can enorce this even for
 Perls default handles by simply using B<FileHandle>.)
+
+=item timeout
+
+In order to show errors in case of deadlocks, you may specify the maximum
+number of seconds to wait before giving up when sending or receiving
+messages.  Zero means that only immiditely aviailable message is received.
+Value of -1 means to wait indefinetely.
+
+Defaults to B<IPC::LDT::Timeout>.
 
 =item objectMode
 
@@ -481,6 +516,7 @@ sub new
   bug("Missing class name parameter") unless $class;
   bug("Constructor called as method, use copy() method instead") if ref($class);
   bug("Missing handle parameter") unless exists $switches{'handle'} and $switches{'handle'};
+  bug("The only supported negative timeout value is -1") if defined $switches{timeout} && $switches{timeout} < 0 && $switches{timeout} != -1;
 
   my $me = fields::new($class);
 
@@ -489,8 +525,13 @@ sub new
     {
      # build and init the object
      $me->{'handle'}=$switches{'handle'};
+     $me->{timeout} =
+        defined $switches{timeout} ? $switches{timeout} : $Timeout;
      $me->{'fileno'}=$me->{'handle'}->fileno;
-     $me->{'msg'}=$me->{'rc'}='';
+     $me->{'msg'} = '';
+     $me->{rc} = LDT_OK;
+     $me->{readBuf} = '';
+     $me->{writeBuf} = '';
      $me->{'objectMode'}=(exists $switches{'objectMode'} and $switches{'objectMode'}) ? 1 : 0;
      $me->{'startblockLength'}=(exists $switches{'startblockLength'} and $switches{'startblockLength'}>0) ? $switches{'startblockLength'} : LDT_INFO_LENGTH;
      $me->{'traceMode'}=(exists $switches{'trace'} and $switches{'trace'}) ? 1: 0;
@@ -785,6 +826,39 @@ sub undelay
 # -------------------------------------------------------------------
 =pod
 
+=head2 timeout([<new timeout>])
+
+Returns and, optionally, update timeout for a channel.  See new() for
+details.
+
+B<Parameters:>
+
+=over 4
+
+=item new timeout
+
+Either a positive number of seconds send() and receive() may wait.  Zero to
+indicate send() and receive() should return immediately.  Or -1 to indicate
+that send() and receive() calls may block indefinetely.
+
+=cut
+# -------------------------------------------------------------------
+sub timeout {
+  my ($me, $timeout) = @_;
+  bug("Missed object parameter") unless $me;
+  bug("The only valid negative timeout value is -1") if defined $timeout && $timeout < 0 && $timeout != -1;
+
+  my $res = $me->{timeout};
+
+  $me->{timeout} = $timeout
+     if defined $timeout;
+
+  return $res;
+}
+
+# -------------------------------------------------------------------
+=pod
+
 =head2 send(<message>)
 
 Sends the passed message via the related handle (which was passed to
@@ -850,77 +924,65 @@ data transmission. The original mode is restored before the method returns.
 
 =cut
 # -------------------------------------------------------------------
-sub send
- {
-  # get and check parameters
-  my ($me, @msg)=@_;
-  bug("Missed object parameter") unless $me;
-  bug("Object parameter is no ${\(__PACKAGE__)} object") unless ref($me) eq __PACKAGE__;
-  bug("Missed message parameter(s)") unless @msg;
+sub send {
+   my ($me, @msg) = @_;
+   bug("Missed object parameter") unless $me;
+   bug("Object parameter is no ${\(__PACKAGE__)} object") unless ref($me) eq __PACKAGE__;
+   bug("Missed message parameter(s)") unless @msg;
 
-  # trace, if necessary
-  $me->trace("LDT $me->{'fileno'}: starting send.");
+   $me->trace("LDT $me->{fileno}: starting send.");
 
-  # check state
-  if ($me->{'rc'} and $me->{'rc'}!=LDT_OK)
-    {
-     # trace, if necessary
-     $me->trace("LDT $me->{'fileno'}: message unsent: object is in state $me->{'rc'}.");
+   if ($me->{rc} != LDT_OK
+      && $me->{rc} != LDT_WRITE_INCOMPLETE)
+   {
+      $me->trace("LDT $me->{fileno}: message unsent: object is in $me->{rc}.");
+      return $me->{rc};
+   }
 
-     # flag error
-     undef;
-    }
-  elsif (not defined $me->{'handle'}->fileno)
-    {
-     # trace, if necessary
-     $me->trace("LDT $me->{'fileno'}: message unsent: related handle was closed.");
+   if (not defined $me->{handle}->fileno)
+   {
+      $me->trace("LDT $me->{fileno}: message unsent: related handle was closed.");
 
-     # set internal flags
-     $me->{'rc'}=LDT_CLOSED;
-     $me->{'msg'}='Related handle was closed.';
+      $me->{rc} = LDT_CLOSED;
+      $me->{msg} = 'Related handle was closed.';
+      return $me->{rc};
+   }
 
-     # flag error
-     undef;
-    }
-  elsif (defined $me->{'delayFilter'} and &{$me->{'delayFilter'}}(\@msg))
-    {
-     # messages should be delayed, queue the new one
-     push(@{$me->{'delayQueue'}}, \@msg);
+   if (defined $me->{delayFilter} and &{ $me->{delayFilter} }(\@msg))
+   {
+      # messages should be delayed
 
-     # trace, if necessary
-     $me->trace("LDT $me->{'fileno'}: message unsent: handle was closed.");
-    }
-  else
-    {
-     # temporarily disable SIGPIPE
-     local($SIG{'PIPE'})='IGNORE';
+      push(@{ $me->{delayQueue} }, \@msg);
 
-     # build the message as necessary
-     my $msg=join('', @msg);
-     $msg=Storable::nfreeze([@msg]) if $me->{'objectMode'};
+      $me->trace("LDT $me->{fileno}: message unsent: queued.");
+      return LDT_OK;
+   }
 
-     # store original handle access flags
-     my $handleFlags=fcntl($me->{'handle'}, F_GETFL, 0);
+   local $SIG{PIPE} = 'IGNORE';
 
-     # activate non blocking mode
-     fcntl($me->{'handle'}, F_SETFL, $handleFlags | O_NONBLOCK);
+   # build the message as necessary
+   my $msg =
+      $me->{objectMode} ?
+            Storable::nfreeze([@msg])
+         :
+            join('', @msg);
 
-     # trace, if necessary
-     $me->trace("LDT $me->{'fileno'}: new message on the way ...");
+   my $originalFlags = fcntl($me->{handle}, F_GETFL, 0);
+   fcntl($me->{handle}, F_SETFL, $originalFlags | O_NONBLOCK);
 
-     # send
-     my $rc=$me->writeHandle(\(join('', sprintf(join('', '%.', $me->{'startblockLength'}, 'd'), length($msg)), $msg)));
+   $me->trace("LDT $me->{fileno}: new message on the way ...");
 
-     # trace, if necessary
-     $me->trace("LDT $me->{'fileno'}: sent message: $msg.");
+   my $timeout = $me->{timeout};
+   my $buf =
+      sprintf("%.$me->{startblockLength}d%s", bytes::length($msg), $msg);
+   &_writeHandle($me, $buf, \$timeout);
 
-     # reset file handle access flags
-     fcntl($me->{'handle'}, F_SETFL, $handleFlags);
+   $me->trace("LDT $me->{fileno}: done sending ($me->{rc}): $msg.");
 
-     # reply result state
-     $rc;
-    }
- }
+   fcntl($me->{handle}, F_SETFL, $originalFlags);
+
+   return $me->{rc};
+}
 
 
 # -------------------------------------------------------------------
@@ -939,6 +1001,9 @@ Nevertheless, if you really want to retry after an error, here is the
 I<reset()> method which resets the internal error flags - unless the
 associated handle was not already closed.
 
+Any partially sent or received message is discarded.  This applies to cases
+when I<$ldt-E<gt>{rc}> is LDT_READ_INCOMPLETE or LDT_WRITE_INCOMPLETE.
+
 B<Parameters:>
 
 =over 4
@@ -954,19 +1019,21 @@ B<Example:>
   $ldtObject->reset;
 
 =cut
-sub reset
- {
-  # get and check parameters
-  my ($me)=@_;
-  bug("Missed object parameter") unless $me;
-  bug("Object parameter is no ${\(__PACKAGE__)} object") unless ref($me) eq __PACKAGE__;
 
-  # trace, if necessary
-  $me->trace("LDT $me->{'fileno'}: object resets error state.");
+sub reset {
+   my ($me) = @_;
+   bug("Missed object parameter") unless $me;
+   bug("Object parameter is no ${\(__PACKAGE__)} object") unless ref($me) eq __PACKAGE__;
 
-  # reset state buffer
-  $me->{'msg'}=$me->{'rc'}='' unless $me->{'rc'}==LDT_CLOSED;
- }
+   $me->trace("LDT $me->{fileno}: reset.");
+
+   unless ($me->{rc} == LDT_CLOSED) {
+      $me->{msg} = '';
+      $me->{readBuf} = '';
+      $me->{writeBuf} = '';
+      $me->{rc} = LDT_OK;
+   }
+}
 
 # -------------------------------------------------------------------
 =pod
@@ -1028,150 +1095,163 @@ data transmission. The original mode is restored before the method returns.
 
 =cut
 # -------------------------------------------------------------------
-sub receive
- {
-  # declare function variables
-  my ($buffer, $mlen)=('', '');
 
-  # get and check parameters
-  my ($me)=@_;
-  bug("Missed object parameter") unless $me;
-  bug("Object parameter is no ${\(__PACKAGE__)} object") unless ref($me) eq __PACKAGE__;
+sub receive {
+   my ($me) = @_;
+   bug("Missed object parameter") unless $me;
+   bug("Object parameter is no ${\(__PACKAGE__)} object") unless ref($me) eq __PACKAGE__;
 
-  # trace, if necessary
-  $me->trace("LDT $me->{'fileno'}: startet receiving.");
+   $me->trace("LDT $me->{fileno}: receiving.");
 
-  # check state
-  if ($me->{'rc'} and $me->{'rc'}!=LDT_OK)
-    {
-     # trace, if necessary
-     $me->trace("LDT $me->{'fileno'}: stopped receiving: object is in state $me->{'rc'}.");
+   my ($mlen, $buffer);
 
-     # flag error
-     undef;
-    }
-  elsif (not defined $me->{'handle'}->fileno)
-    {
-     # trace, if necessary
-     $me->trace("LDT $me->{'fileno'}: stopped receiving: object is in state $me->{'rc'}.");
+   if ($me->{rc} != LDT_OK
+      && $me->{rc} != LDT_READ_INCOMPLETE)
+   {
+      $me->trace("LDT $me->{fileno}: stopped receiving: object is in $me->{rc}.");
+      return ();
+   }
 
-     # set internal flags
-     $me->{'rc'}=LDT_CLOSED;
-     $me->{'msg'}='Related handle was closed.';
+   if (not defined $me->{handle}->fileno) {
+      $me->trace("LDT $me->{fileno}: stopped receiving: object is in $me->{rc}.");
 
-     # flag error
-     undef;
-    }
-  else
-    {
-     # temporarily disable SIGPIPE
-     local($SIG{'PIPE'})='IGNORE';
+      $me->{rc} = LDT_CLOSED;
+      $me->{msg} = 'Related handle was closed.';
 
-     # store original handle access flags
-     my $handleFlags=fcntl($me->{'handle'}, F_GETFL, 0);
+      return ();
+   }
 
-     # activate non blocking mode
-     fcntl($me->{'handle'}, F_SETFL, $handleFlags | O_NONBLOCK);
+   # temporarily disable SIGPIPE
+   local $SIG{PIPE} = 'IGNORE';
 
-     # read message, start with length info
-     my $rc=($me->readHandle(\$mlen) and $me->readHandle(\$buffer, $mlen));
+   my $originalFlags = fcntl($me->{handle}, F_GETFL, 0);
+   fcntl($me->{handle}, F_SETFL, $originalFlags | O_NONBLOCK);
 
-     # reset file handle access flags
-     fcntl($me->{'handle'}, F_SETFL, $handleFlags);
+   # read message, start with length info
+   {
+      my $timeout = $me->{timeout};
 
-     # check transfer success
-     unless ($rc)
-       {
-	# failed: reply state
-	return undef;
-       }
-     else
-       {
-	# thaw result list, if necessary
-	my @buffer=@{Storable::thaw($buffer)} if $buffer and $me->{'objectMode'};
+      my $mlen;
+      &_readHandle($me, \$mlen, $me->{startblockLength}, \$timeout)
+         or last;
 
-	# reply result in correct form
-	$me->{'objectMode'} ? @buffer : $buffer;
-       }
-    }
- }
+      &_readHandle($me, \$buffer, $mlen, \$timeout)
+         or &_unreadHandle($me, $mlen);
+   }
+
+   fcntl($me->{handle}, F_SETFL, $originalFlags);
+
+   return ()
+      unless $me->{rc} == LDT_OK;
+
+   if ($buffer && $me->{objectMode}) {
+      return @{ Storable::thaw($buffer) };
+   }
+   else {
+      return $buffer;
+   }
+}
 
 # -------------------------------------------------------------------
 #
 # Internal method: Reads a number of bytes from the object handle.
 #
 # -------------------------------------------------------------------
-sub readHandle
- {
-  # declare function variables
-  my ($readBytes, $trials);
+sub _readHandle {
+   my ($me, $targetBufferRef, $targetLength, $timeout) = @_;
 
-  # get and check parameters
-  my ($me, $targetBufferRef, $targetLength)=@_;
-  bug("Missed object parameter") unless $me;
-  bug("Object parameter is no ${\(__PACKAGE__)} object") unless ref($me) eq __PACKAGE__;
-  bug("Missed target buffer parameter") unless $targetBufferRef;
-  bug("Target buffer parameter is no scalar reference") unless ref $targetBufferRef eq 'SCALAR';
+   bug("Missed object parameter") unless $me;
+   bug("Object parameter is no ${\(__PACKAGE__)} object") unless ref($me) eq __PACKAGE__;
+   bug("Missed target buffer parameter") unless $targetBufferRef;
+   bug("Target buffer parameter is no scalar reference") unless ref $targetBufferRef eq 'SCALAR';
 
-  # set default length, if necessary
-  $targetLength=$me->{'startblockLength'} unless defined $targetLength;
+   use bytes;
 
-  # read!
-  my $length=$targetLength;
-  while ($length)
-    {
-     # perform reading
-     $readBytes=sysread($me->{'handle'}, $$targetBufferRef, $length, $targetLength-$length);
+   my $startTime = [gettimeofday()];
 
-     # all right?
-     if (defined $readBytes)
-       {
-	# connection closed?
-	unless ($readBytes)
-	  {
-	   # the handle closed!
-	   $me->{'msg'}="Related handle was closed (while reading was performed).";
-	   $me->{'rc'}=LDT_CLOSED;
-	   $me->trace("LDT $me->{'fileno'}: $me->{'msg'}");
-	   return undef;
-	  }
+   # We first read into our internal buffer in case we timeout before a
+   # complete message.
+   my $buf = $me->{readBuf};
+   my $pos = length($buf);
 
-	# If here, we read a little bit more - and this bit was already added
-	# to our buffer. All we still have to do is to update our length
-	# counter and to reset the trial one.
-	$length-=$readBytes;
-	$trials=0;
-	$me->trace("LDT $me->{'fileno'}: read $readBytes bytes gelesen, still waiting for $length.");
-       }
-     else
-       {
-	if ($!==EAGAIN and ++$trials<HANDLE_RETRY_COUNT)
-	  {
-	   # The system flagged that we should continue later to get more
-	   # from our handle. Doing nothing here means we continue with
-	   # the next loop - restarting select() - which will hopefully
-	   # provide more bytes from the handle.
-	   $me->trace("LDT $me->{'fileno'}: waitig for a new chance to read remaining $length bytes ($trials. trial).");
-	   $me->{'select'}->can_read(HANDLE_RETRY_DELAY);
-	  }
-	else
-	  {
-	   # anything is wrong here
-	   $me->{'msg'}="Cannot read the message completely.";
-	   $me->{'rc'}=LDT_READ_INCOMPLETE;
-	   $me->trace("LDT $me->{'fileno'}: $me->{'msg'}");
-	   return undef;
-	  }
-       }
-    }
+   my $bytesLeft = $targetLength - length($buf);
+   while ($bytesLeft > 0) {
+      my $readBytes = sysread($me->{handle}, $buf, $bytesLeft, $pos);
 
-  # trace, if necessary
-  $me->trace("LDT $me->{'fileno'}: message received: \"$$targetBufferRef\".");
+      unless (defined $readBytes || $! == EAGAIN) {
+         $me->{msg} = "sysread() failed: $!";
+         $me->{rc} = LDT_ERROR;
+         $me->trace("LDT $me->{'fileno'}: $me->{'msg'}");
+         return 0;
+      }
 
-  # if we are here, we were successfull
-  $me->{'rc'}=LDT_OK;
-  1;
- }
+      unless (defined $readBytes) {
+         # $! == EAGAIN
+         $me->trace("LDT $me->{fileno}: waiting to read $bytesLeft bytes ($timeout).");
+
+         if ($$timeout < 0) {
+            $me->{select}->can_read;
+         }
+         elsif ($$timeout == 0) {
+            $me->{readBuf} = $buf;
+            $me->{rc} = LDT_READ_INCOMPLETE;
+            return 0;
+         }
+         else {
+            my $timeUsed = tv_interval($startTime);
+
+            if ($timeUsed > $$timeout) {
+               $$timeout = 0;
+               $me->{readBuf} = $buf;
+               $me->{rc} = LDT_READ_INCOMPLETE;
+               return 0;
+            }
+
+            $me->{select}->can_read($$timeout - $timeUsed);
+         }
+
+         next;
+      }
+
+      if (defined $readBytes && $readBytes == 0) {
+         # connection closed
+         $me->{msg} = "Handle was closed (while reading)";
+         $me->{rc} = LDT_CLOSED;
+         $me->trace("LDT $me->{fileno}: $me->{msg}");
+         return 0;
+      }
+
+      $bytesLeft -= $readBytes;
+      $pos += $readBytes;
+      $me->trace("LDT $me->{fileno}: read $readBytes bytes, waiting for $bytesLeft.");
+   }
+
+   if (length($buf) > $targetLength) {
+      $$targetBufferRef = substr($buf, 0, $targetLength);
+      $me->{readBuf} = substr($buf, $targetLength);
+   }
+   else {
+      $$targetBufferRef = $buf;
+      $me->{readBuf} = '';
+   }
+
+   if ($$timeout > 0) {
+      $$timeout -= tv_interval($startTime);
+      $$timeout = 0 if $$timeout < 0;
+   }
+
+   $me->{rc} = LDT_OK;
+   $me->trace("LDT $me->{fileno}: message received: \"$$targetBufferRef\".");
+   return 1;
+}
+
+# Stores string into the read buffer.  To be returned by the next
+# _readHandle.
+sub _unreadHandle {
+   my ($me, $buf) = @_;
+
+   $me->{readBuf} = $buf . $me->{readBuf};
+}
 
   
 
@@ -1180,73 +1260,88 @@ sub readHandle
 # Internal method: Writes a number of bytes to the object handle.
 #
 # -------------------------------------------------------------------
-sub writeHandle
- {
-  # declare function variables
-  my ($writtenBytes, $trials, $length, $srcLength);
+sub _writeHandle {
+   my ($me, $srcBuffer, $timeout) = @_;
 
-  # get and check parameters
-  my ($me, $srcBufferRef)=@_;
-  bug("Missed object parameter") unless $me;
-  bug("Object parameter is no ${\(__PACKAGE__)} object") unless ref($me) eq __PACKAGE__;
-  bug("Missed source buffer parameter") unless $srcBufferRef;
-  bug("Source buffer parameter is no scalar reference") unless ref $srcBufferRef eq 'SCALAR';
+   bug("Missed object parameter") unless $me;
+   bug("Object parameter is no ${\(__PACKAGE__)} object") unless ref($me) eq __PACKAGE__;
+   bug("Missed source buffer parameter") unless $srcBuffer;
 
-  # write!
-  $length=$srcLength=length($$srcBufferRef);
-  while ($length)
-    {
-     # perform writing
-     $writtenBytes=syswrite($me->{'handle'}, $$srcBufferRef, $length, $srcLength-$length);
+   use bytes;
 
-     # all right?
-     if (defined $writtenBytes)
-       {
-	# connection closed?
-	unless ($writtenBytes)
-	  {
-	   # the handle closed!
-	   $me->{'msg'}="Related handle was closed (while writing to it).";
-	   $me->{'rc'}=LDT_CLOSED;
-	   $me->trace("LDT $me->{'fileno'}: $me->{'msg'}");
-	   return undef;
-	  }
+   my $startTime = [gettimeofday()];
 
-	# If here, we wrote a little bit more. All we still
-	# have to do is to update our length counter and to reset the trial one.
-	$length-=$writtenBytes;
-	$trials=0;
-	$me->trace("LDT $me->{'fileno'}: wrote $writtenBytes bytes, $length bytes still waiting.");
-       }
-     else
-       {
-	if ($!==EAGAIN and ++$trials<HANDLE_RETRY_COUNT)
-	  {
-	   # The sytem flagged that we should continue later to send more
-	   # to our handle. Doing nothing here means we continue with
-	   # the next loop - restarting select() - which will hopefully
-	   # send more bytes to the handle.
-	   $me->trace("LDT $me->{'fileno'}: waiting for a new chance to write remaining $length bytes ($trials. trial).");
-	   $me->{'select'}->can_write(HANDLE_RETRY_DELAY);
-	  }
-	else
-	  {
-	   # anything is wrong here
-	   $me->{'msg'}="Cannot write the message completely.";
-	   $me->{'rc'}=LDT_WRITE_INCOMPLETE;
-	   $me->trace("LDT $me->{'fileno'}: $me->{'msg'}");
-	   return undef;
-	  }
-       }
-    }
+   # We write through an internal buffer.  That allows long writes to be
+   # split over several attempts.
+   $me->{writeBuf} .= $srcBuffer;
+   my $buf = $me->{writeBuf};
 
-  # trace, if necessary
-  $me->trace("LDT $me->{'fileno'}: message sent completely: \"$$srcBufferRef\".");
+   my $bytesLeft = length($buf);
+   my $pos = 0;
 
-  # if we are here, we were successfull
-  $me->{'rc'}=LDT_OK;
-  1;
- }
+   while ($bytesLeft > 0)
+   {
+      my $bytesWritten = syswrite($me->{handle}, $buf, $bytesLeft, $pos);
+
+      unless (defined $bytesWritten || $! == EAGAIN) {
+         $me->{writeBuf} = substr($buf, $pos);
+         $me->{msg} = "syswrite() failed: $!";
+         $me->{rc} = LDT_ERROR;
+         $me->trace("LDT $me->{'fileno'}: $me->{'msg'}");
+         return 0;
+      }
+
+      unless (defined $bytesWritten) {
+         # $! == EAGAIN
+         $me->trace("LDT $me->{fileno}: waiting to write $bytesLeft bytes ($timeout).");
+
+         if ($$timeout < 0) {
+            $me->{select}->can_write;
+         }
+         elsif ($$timeout == 0) {
+            $me->{rc} = LDT_WRITE_INCOMPLETE;
+            return 0;
+         }
+         else {
+            my $timeUsed = tv_interval($startTime);
+
+            if ($timeUsed > $$timeout) {
+               $$timeout = 0;
+               $me->{rc} = LDT_WRITE_INCOMPLETE;
+               return 0;
+            }
+
+            $me->{select}->can_write($$timeout - $timeUsed);
+         }
+
+         next;
+      }
+
+      if (defined $bytesWritten && $bytesWritten == 0) {
+         # connection closed
+         $me->{msg} = "Handle was closed (while writing)";
+         $me->{rc} = LDT_CLOSED;
+         $me->trace("LDT $me->{fileno}: $me->{msg}");
+         return 0;
+      }
+
+      $bytesLeft -= $bytesWritten;
+      $pos += $bytesWritten;
+      $me->trace("LDT $me->{fileno}: wrote $bytesWritten bytes, $bytesLeft still waiting.");
+   }
+
+   $me->{writeBuf} = '';
+
+   if ($$timeout > 0) {
+      $$timeout -= tv_interval($startTime);
+      $$timeout = 0 if $$timeout < 0;
+   }
+
+   $me->{rc} = LDT_OK;
+   $me->trace("LDT $me->{fileno}: message sent completely: \"$buf\".");
+
+   return 1;
+}
 
 
 # -------------------------------------------------------------------
