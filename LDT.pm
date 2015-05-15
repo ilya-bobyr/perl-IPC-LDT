@@ -251,8 +251,6 @@ use fields qw(
               traceMode
              );
 
-=pod
-
 =head2 Exports
 
 No symbol is exported by default.
@@ -294,8 +292,6 @@ use constant LDT_INFO_LENGTH=>8;        # length of a handle message length stri
 
 # Default timeouts.
 our $Timeout = 10;
-
-=pod
 
 =head1 Global Variables
 
@@ -392,15 +388,12 @@ use constant LDT_ERROR           =>-2;
 use constant LDT_READ_INCOMPLETE =>-3;	# a handle message could not be read completely;
 use constant LDT_WRITE_INCOMPLETE=>-4;	# a handle message could not be written completely;
 
-=pod
-
 =head1 METHODS
 
 =cut
 
 
 # -------------------------------------------------------------------
-=pod
 
 =head2 new()
 
@@ -568,7 +561,6 @@ sub DESTROY
 
 
 # -------------------------------------------------------------------
-=pod
 
 =head2 setObjectMode()
 
@@ -611,7 +603,6 @@ sub setObjectMode
 
 
 # -------------------------------------------------------------------
-=pod
 
 =head2 setAsciiMode()
 
@@ -654,7 +645,6 @@ sub setAsciiMode
 
 
 # -------------------------------------------------------------------
-=pod
 
 =head2 delay()
 
@@ -738,7 +728,6 @@ sub delay
 
 
 # -------------------------------------------------------------------
-=pod
 
 =head2 undelay()
 
@@ -824,7 +813,6 @@ sub undelay
  }
 
 # -------------------------------------------------------------------
-=pod
 
 =head2 timeout([<new timeout>])
 
@@ -857,7 +845,6 @@ sub timeout {
 }
 
 # -------------------------------------------------------------------
-=pod
 
 =head2 send(<message>)
 
@@ -986,7 +973,6 @@ sub send {
 
 
 # -------------------------------------------------------------------
-=pod
 
 =head2 reset
 
@@ -1036,7 +1022,6 @@ sub reset {
 }
 
 # -------------------------------------------------------------------
-=pod
 
 =head2 receive()
 
@@ -1364,7 +1349,6 @@ sub trace
 
 
 # ----------------------------------------------------------------------------------------------
-=pod
 
 =head2 version()
 
@@ -1394,7 +1378,6 @@ sub version
 
 # = POD TRAILER SECTION ==================================================================
 
-=pod
 
 =head1 ENVIRONMENT
 
