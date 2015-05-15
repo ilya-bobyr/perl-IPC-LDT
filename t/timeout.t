@@ -13,6 +13,13 @@ use IO::File;
 use Fcntl 'SEEK_SET';
 
 
+sub _timed (&) {
+   my $startTime = [gettimeofday()];
+   &{ $_[0] }();
+   return tv_interval($startTime);
+}
+
+
 my $msg1 = 'Message to be sent in chunks';
 
 sub parent {
@@ -22,12 +29,12 @@ sub parent {
    $out->setObjectMode;
 
    $in->timeout(0.01);
-   my (@data, $startTime, $spentTime);
+   my (@data, $spentTime);
 
    $out->send(1);
-   $startTime = [gettimeofday()];
-   @data = $in->receive;
-   $spentTime = tv_interval($startTime);
+   $spentTime = _timed {
+      @data = $in->receive;
+   };
 
    is($out->{rc}, LDT_OK, "sync send() successful.1");
    is($in->{rc}, LDT_READ_INCOMPLETE, "read is pending.1");
@@ -35,9 +42,9 @@ sub parent {
    cmp_ok($spentTime, '<', 0.1, "read timed out fast enough.1");
 
    $out->send(1);
-   $startTime = [gettimeofday()];
-   @data = $in->receive;
-   $spentTime = tv_interval($startTime);
+   $spentTime = _timed {
+      @data = $in->receive;
+   };
 
    is($out->{rc}, LDT_OK, "sync send() successful.2");
    is($in->{rc}, LDT_READ_INCOMPLETE, "read is pending.2");
@@ -45,9 +52,9 @@ sub parent {
    cmp_ok($spentTime, '<', 0.1, "read timed out fast enough.2");
 
    $out->send(1);
-   $startTime = [gettimeofday()];
-   @data = $in->receive;
-   $spentTime = tv_interval($startTime);
+   $spentTime = _timed {
+      @data = $in->receive;
+   };
 
    is($out->{rc}, LDT_OK, "sync send() successful.3");
    is($in->{rc}, LDT_READ_INCOMPLETE, "read is pending.3");
@@ -55,9 +62,9 @@ sub parent {
    cmp_ok($spentTime, '<', 0.1, "read timed out fast enough.3");
 
    $out->send(1);
-   $startTime = [gettimeofday()];
-   @data = $in->receive;
-   $spentTime = tv_interval($startTime);
+   $spentTime = _timed {
+      @data = $in->receive;
+   };
 
    is($out->{rc}, LDT_OK, "sync send() successful.4");
    is($in->{rc}, LDT_READ_INCOMPLETE, "read is pending.4");
@@ -65,9 +72,9 @@ sub parent {
    cmp_ok($spentTime, '<', 0.1, "read timed out fast enough.4");
 
    $out->send(1);
-   $startTime = [gettimeofday()];
-   @data = $in->receive;
-   $spentTime = tv_interval($startTime);
+   $spentTime = _timed {
+      @data = $in->receive;
+   };
 
    is($out->{rc}, LDT_OK, "sync send() successful.5");
    is($in->{rc}, LDT_OK, "read was successful.5");
